@@ -7,6 +7,7 @@ import StandardSizeSelector from "@/components/configurator/StandardSizeSelector
 import CustomSizeInput from "@/components/configurator/CustomSizeInput";
 import BagOptionsForm from "@/components/configurator/BagOptionsForm";
 import TierSelector from "@/components/configurator/TierSelector";
+import BagPreview from "@/components/configurator/BagPreview";
 import { LeadCaptureForm } from "@/components/lead-capture/LeadCaptureForm";
 import { PricingComparison } from "@/components/results/PricingComparison";
 import { TierButtons } from "@/components/results/TierButtons";
@@ -129,6 +130,16 @@ export default function QuotePage() {
     quantities: selectedTiers,
   }), [dims, substrate, finish, sealType, fillStyle, zipper, tearNotch, holePunch, corners, embellishment, selectedTiers]);
 
+  const stepKeys: Step[] = ["configure", "lead-capture", "results"];
+  const currentStepIndex = stepKeys.indexOf(step);
+
+  const handleStepClick = (targetStep: Step) => {
+    const targetIndex = stepKeys.indexOf(targetStep);
+    if (targetIndex < currentStepIndex) {
+      setStep(targetStep);
+    }
+  };
+
   const handleContinue = () => {
     // If lead already captured in session, skip to results
     if (lead) {
@@ -186,20 +197,48 @@ export default function QuotePage() {
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-8">
         {/* Step indicators */}
         <div className="flex items-center gap-3 mb-8">
-          {["Configure", "Contact Info", "Your Pricing"].map((label, i) => {
-            const stepKeys: Step[] = ["configure", "lead-capture", "results"];
-            const isActive = stepKeys.indexOf(step) >= i;
+          {["Configure", "Contact Info", "Your Quote"].map((label, i) => {
+            const isCompleted = i < currentStepIndex;
+            const isCurrent = i === currentStepIndex;
+            const isActive = currentStepIndex >= i;
+
+            const indicator = isCompleted ? (
+              <span className="w-6 h-6 rounded-full flex items-center justify-center bg-calyx-blue text-white">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+            ) : (
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${isActive ? "bg-calyx-blue text-white" : "bg-gray-10 text-gray-30"}`}>
+                {i + 1}
+              </span>
+            );
+
+            const content = (
+              <>
+                {indicator}
+                {label}
+              </>
+            );
+
             return (
               <div key={label} className="flex items-center gap-3">
                 {i > 0 && (
                   <div className={`h-px w-8 ${isActive ? "bg-calyx-blue" : "bg-gray-10"}`} />
                 )}
-                <div className={`flex items-center gap-2 text-sm font-medium ${isActive ? "text-calyx-blue" : "text-gray-30"}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${isActive ? "bg-calyx-blue text-white" : "bg-gray-10 text-gray-30"}`}>
-                    {i + 1}
-                  </span>
-                  {label}
-                </div>
+                {isCompleted ? (
+                  <button
+                    type="button"
+                    onClick={() => handleStepClick(stepKeys[i])}
+                    className="flex items-center gap-2 text-sm font-medium text-calyx-blue hover:text-flash-blue cursor-pointer transition-colors"
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div className={`flex items-center gap-2 text-sm font-medium ${isCurrent ? "text-calyx-blue" : "text-gray-30"}`}>
+                    {content}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -213,60 +252,100 @@ export default function QuotePage() {
 
         {/* Step 1: Configure Bag */}
         {step === "configure" && (
-          <div className="space-y-8">
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-90">Configure Your Bag</h2>
-              <p className="mt-1 text-gray-60">Select a standard size or enter custom dimensions.</p>
+          <div className="flex flex-col md:flex-row gap-8">
+            {/* Left column: form */}
+            <div className="flex-1 space-y-8">
+              <div>
+                <h2 className="text-2xl font-semibold text-gray-90">Configure Your Bag</h2>
+                <p className="mt-1 text-gray-60">Select a standard size or enter custom dimensions.</p>
+              </div>
+
+              <StandardSizeSelector
+                selectedSize={selectedSize}
+                onSelect={handleSizeSelect}
+                isCustom={isCustomSize}
+              />
+
+              {isCustomSize && (
+                <CustomSizeInput
+                  width={customWidth}
+                  height={customHeight}
+                  gusset={customGusset}
+                  onChange={handleCustomDimChange}
+                />
+              )}
+
+              {/* Inline bag preview on mobile */}
+              <div className="md:hidden">
+                <BagPreview
+                  width={dims.w}
+                  height={dims.h}
+                  gusset={dims.g}
+                  sealType={sealType}
+                  zipper={zipper}
+                  tearNotch={tearNotch}
+                  holePunch={holePunch}
+                  corners={corners}
+                  finish={finish}
+                  substrate={substrate}
+                  embellishment={embellishment}
+                />
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-gray-90 mb-4">Bag Options</h3>
+                <BagOptionsForm
+                  substrate={substrate}
+                  finish={finish}
+                  sealType={sealType}
+                  fillStyle={fillStyle}
+                  zipper={zipper}
+                  tearNotch={tearNotch}
+                  holePunch={holePunch}
+                  corners={corners}
+                  embellishment={embellishment}
+                  onChange={handleOptionChange}
+                />
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-gray-90 mb-4">Quantity Tiers</h3>
+                <p className="text-sm text-gray-60 mb-3">Select a quantity to compare pricing across methods.</p>
+                <TierSelector
+                  tiers={selectedTiers}
+                  activeTier={activeTier}
+                  onTierClick={setActiveTier}
+                />
+              </div>
+
+              <button
+                onClick={handleContinue}
+                disabled={isLoading}
+                className="bg-calyx-blue text-white px-8 py-3 rounded-lg font-medium hover:bg-flash-blue transition-colors disabled:opacity-50"
+              >
+                {isLoading ? "Loading..." : lead ? "See My Quote" : "Continue"}
+              </button>
             </div>
 
-            <StandardSizeSelector
-              selectedSize={selectedSize}
-              onSelect={handleSizeSelect}
-              isCustom={isCustomSize}
-            />
-
-            {isCustomSize && (
-              <CustomSizeInput
-                width={customWidth}
-                height={customHeight}
-                gusset={customGusset}
-                onChange={handleCustomDimChange}
-              />
-            )}
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-90 mb-4">Bag Options</h3>
-              <BagOptionsForm
-                substrate={substrate}
-                finish={finish}
-                sealType={sealType}
-                fillStyle={fillStyle}
-                zipper={zipper}
-                tearNotch={tearNotch}
-                holePunch={holePunch}
-                corners={corners}
-                embellishment={embellishment}
-                onChange={handleOptionChange}
-              />
+            {/* Right column: sticky bag preview (desktop only) */}
+            <div className="hidden md:block w-[240px] shrink-0">
+              <div className="sticky top-8 rounded-xl border border-gray-10 bg-white p-4 shadow-sm">
+                <p className="text-xs font-medium text-gray-40 uppercase tracking-wider mb-3 text-center">Preview</p>
+                <BagPreview
+                  width={dims.w}
+                  height={dims.h}
+                  gusset={dims.g}
+                  sealType={sealType}
+                  zipper={zipper}
+                  tearNotch={tearNotch}
+                  holePunch={holePunch}
+                  corners={corners}
+                  finish={finish}
+                  substrate={substrate}
+                  embellishment={embellishment}
+                />
+              </div>
             </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-90 mb-4">Quantity Tiers</h3>
-              <p className="text-sm text-gray-60 mb-3">Select a quantity to compare pricing across methods.</p>
-              <TierSelector
-                tiers={selectedTiers}
-                activeTier={activeTier}
-                onTierClick={setActiveTier}
-              />
-            </div>
-
-            <button
-              onClick={handleContinue}
-              disabled={isLoading}
-              className="bg-calyx-blue text-white px-8 py-3 rounded-lg font-medium hover:bg-flash-blue transition-colors disabled:opacity-50"
-            >
-              {isLoading ? "Loading..." : lead ? "See My Price" : "Continue"}
-            </button>
           </div>
         )}
 
@@ -290,9 +369,9 @@ export default function QuotePage() {
         {step === "results" && quote && (
           <div className="space-y-8">
             <div>
-              <h2 className="text-2xl font-semibold text-gray-90">Your Instant Pricing</h2>
+              <h2 className="text-2xl font-semibold text-gray-90">Your Instant Quote</h2>
               <p className="mt-1 text-gray-60">
-                Compare production methods side by side. Select a quantity tier to update pricing.
+                Compare production methods side by side. Select a quantity tier to update your quote.
               </p>
             </div>
 
