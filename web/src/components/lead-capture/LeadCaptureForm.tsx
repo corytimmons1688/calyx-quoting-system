@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ANNUAL_SPEND_OPTIONS } from "@/lib/constants/bag-options";
+import type { LeadData } from "@/lib/types/quote";
 
 interface Props {
   onSubmit: (data: {
@@ -11,6 +12,10 @@ interface Props {
     phone: string;
     annual_spend: string;
   }) => void;
+  /** Called when a returning lead clicks "Continue" without re-submitting. */
+  onContinueExisting?: () => void;
+  /** Pre-filled lead data for returning visitors. */
+  existingLead?: LeadData | null;
   isSubmitting?: boolean;
 }
 
@@ -24,12 +29,13 @@ interface FormErrors {
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function LeadCaptureForm({ onSubmit, isSubmitting = false }: Props) {
-  const [fullName, setFullName] = useState("");
-  const [businessName, setBusinessName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [annualSpend, setAnnualSpend] = useState("");
+export function LeadCaptureForm({ onSubmit, onContinueExisting, existingLead, isSubmitting = false }: Props) {
+  const [showForm, setShowForm] = useState(!existingLead);
+  const [fullName, setFullName] = useState(existingLead?.full_name ?? "");
+  const [businessName, setBusinessName] = useState(existingLead?.business_name ?? "");
+  const [email, setEmail] = useState(existingLead?.email ?? "");
+  const [phone, setPhone] = useState(existingLead?.phone ?? "");
+  const [annualSpend, setAnnualSpend] = useState(existingLead?.annual_spend ?? "");
   const [errors, setErrors] = useState<FormErrors>({});
 
   function validate(): FormErrors {
@@ -71,6 +77,37 @@ export function LeadCaptureForm({ onSubmit, isSubmitting = false }: Props) {
       phone: phone.trim(),
       annual_spend: annualSpend,
     });
+  }
+
+  // Returning-lead welcome-back view
+  if (existingLead && !showForm) {
+    return (
+      <div className="space-y-5">
+        <div className="rounded-xl border border-gray-10 bg-gray-05 p-5 space-y-2">
+          <p className="text-sm font-medium text-gray-90">
+            Welcome back, {existingLead.full_name}!
+          </p>
+          <p className="text-sm text-gray-60">
+            {existingLead.business_name} &middot; {existingLead.email}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={isSubmitting}
+          onClick={onContinueExisting}
+          className="w-full rounded-lg bg-calyx-blue px-6 py-3 text-sm font-semibold text-white hover:bg-ocean-blue disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isSubmitting ? "Loading..." : "See My Price"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="w-full text-sm text-gray-60 hover:text-gray-90 transition-colors"
+        >
+          Not you? Enter different info
+        </button>
+      </div>
+    );
   }
 
   return (

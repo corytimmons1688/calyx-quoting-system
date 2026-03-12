@@ -46,3 +46,23 @@ def update_quote(quote_id: str, updates: dict) -> dict:
     sb = get_supabase()
     result = sb.table("customer_quotes").update(updates).eq("id", quote_id).execute()
     return result.data[0] if result.data else {}
+
+
+def get_quotes_by_lead(lead_id: str) -> list[dict]:
+    """Fetch all quotes for a given lead, newest first."""
+    sb = get_supabase()
+    result = (
+        sb.table("customer_quotes")
+        .select("*")
+        .eq("lead_id", lead_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+def get_lead(lead_id: str) -> dict | None:
+    """Fetch a lead by ID."""
+    sb = get_supabase()
+    result = sb.table("customer_leads").select("*").eq("id", lead_id).execute()
+    return result.data[0] if result.data else None

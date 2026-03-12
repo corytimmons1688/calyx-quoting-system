@@ -10,12 +10,12 @@ export function useLeadSession() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
         setLead(JSON.parse(stored));
       } catch {
-        localStorage.removeItem(STORAGE_KEY);
+        sessionStorage.removeItem(STORAGE_KEY);
       }
     }
     setIsLoaded(true);
@@ -23,12 +23,12 @@ export function useLeadSession() {
 
   const saveLead = (data: LeadData) => {
     setLead(data);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   };
 
   const clearLead = () => {
     setLead(null);
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
   };
 
   return { lead, saveLead, clearLead, isLoaded };

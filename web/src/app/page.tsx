@@ -11,6 +11,7 @@ import { LeadCaptureForm } from "@/components/lead-capture/LeadCaptureForm";
 import { PricingComparison } from "@/components/results/PricingComparison";
 import { TierButtons } from "@/components/results/TierButtons";
 import { PostQuoteActions } from "@/components/results/PostQuoteActions";
+import { BagConfigSummary } from "@/components/results/BagConfigSummary";
 import { useLeadSession } from "@/lib/hooks/useLeadSession";
 import { submitLead, getInstantQuote, requestAccountManager } from "@/lib/api/quote-client";
 import { DEFAULTS } from "@/lib/constants/bag-options";
@@ -62,6 +63,7 @@ export default function QuotePage() {
 
   // Results state
   const [quote, setQuote] = useState<InstantQuoteResponse | null>(null);
+  const [submittedConfig, setSubmittedConfig] = useState<BagConfig | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [managerRequested, setManagerRequested] = useState(false);
@@ -130,12 +132,12 @@ export default function QuotePage() {
   }), [dims, substrate, finish, sealType, fillStyle, zipper, tearNotch, holePunch, corners, embellishment, selectedTiers]);
 
   const handleContinue = () => {
-    // If lead already captured in session, skip to results
-    if (lead) {
-      fetchQuote(lead.lead_id);
-    } else {
-      setStep("lead-capture");
-    }
+    setStep("lead-capture");
+  };
+
+  /** Called when a returning lead clicks "Continue" on the welcome-back card. */
+  const handleContinueExisting = () => {
+    if (lead) fetchQuote(lead.lead_id);
   };
 
   const handleLeadSubmit = async (data: {
@@ -161,6 +163,7 @@ export default function QuotePage() {
       const config = buildBagConfig();
       const result = await getInstantQuote(config, leadId);
       setQuote(result);
+      setSubmittedConfig(config);
       setStep("results");
     } catch (err) {
       setError("Failed to get pricing. Please try again.");
@@ -279,13 +282,19 @@ export default function QuotePage() {
         {step === "lead-capture" && (
           <div className="max-w-lg mx-auto space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold text-gray-90">Tell Us About Your Business</h2>
+              <h2 className="text-2xl font-semibold text-gray-90">
+                {lead ? "Confirm Your Info" : "Tell Us About Your Business"}
+              </h2>
               <p className="mt-1 text-gray-60">
-                We need a few details before showing your pricing.
+                {lead
+                  ? "We have your details on file. Continue to see your pricing."
+                  : "We need a few details before showing your pricing."}
               </p>
             </div>
             <LeadCaptureForm
               onSubmit={handleLeadSubmit}
+              onContinueExisting={handleContinueExisting}
+              existingLead={lead}
               isSubmitting={isLoading}
             />
           </div>
@@ -300,6 +309,13 @@ export default function QuotePage() {
                 Compare production methods side by side. Select a quantity tier to update pricing.
               </p>
             </div>
+
+            {submittedConfig && (
+              <BagConfigSummary
+                config={submittedConfig}
+                onModify={() => setStep("configure")}
+              />
+            )}
 
             <TierButtons
               tiers={selectedTiers}

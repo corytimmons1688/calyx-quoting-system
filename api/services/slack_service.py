@@ -15,6 +15,7 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 # Testing: DM Cory directly. Switch to C090UDK9CF5 for #inbound-channel in production.
 INBOUND_CHANNEL_ID = "U04P18H18B1"
 SLACK_API_URL = "https://slack.com/api/chat.postMessage"
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:3000")
 
 
 def _fmt_currency(value: float | None) -> str:
@@ -87,10 +88,17 @@ async def notify_slack_quote(lead_data: dict, quote_data: dict):
     qtys = specs.get("quantities", [])
     qty_str = ", ".join(f"{q:,}" for q in qtys) if qtys else "N/A"
 
+    quote_id = quote_data.get("quote_id", "unknown")
+    lead_id = lead_data.get("lead_id") or lead_data.get("id", "unknown")
+    quotes_url = f"{APP_BASE_URL}/quotes/{lead_id}"
+
     text = (
         f":new: *New Quote Request*\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f":bust_in_silhouette: Lead: {lead_data.get('lead_id', 'unknown')}\n"
+        f":bust_in_silhouette: {lead_data.get('full_name', 'Unknown')} — {lead_data.get('business_name', '')}\n"
+        f":email: {lead_data.get('email', '')} | :phone: {lead_data.get('phone', '')}\n"
+        f":moneybag: Annual Spend: {lead_data.get('annual_spend', '')}\n"
+        f":page_facing_up: Quote: <{quotes_url}|{quote_id}>\n"
         f"\n"
         f":package: Bag: {dims} {seal_type}\n"
         f":art: {substrate}, {finish}\n"

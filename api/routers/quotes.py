@@ -12,7 +12,7 @@ from api.schemas.quote_response import InstantQuoteResponse
 from pydantic import BaseModel
 
 from api.services.prediction_service import generate_instant_quote, DEFAULT_MARGIN_PCT
-from api.services.supabase_client import insert_quote, update_quote, get_supabase
+from api.services.supabase_client import insert_quote, update_quote, get_supabase, get_quotes_by_lead, get_lead
 from api.services.slack_service import notify_slack_quote, notify_slack_manager_request
 from api.middleware.sanitizer import sanitize_response
 
@@ -101,17 +101,21 @@ async def instant_quote(
         # Non-fatal: still return the quote even if DB write fails
         response.quote_id = "transient"
 
+    # Fetch lead data for the Slack notification
+    lead_data = {"lead_id": request.lead_id}
+    try:
+        sb = get_supabase()
+        result = sb.table("customer_leads").select("*").eq("id", request.lead_id).execute()
+        if result.data:
+            lead_data = result.data[0]
+            lead_data["lead_id"] = request.lead_id
+    except Exception as e:
+        logger.error(f"Failed to fetch lead {request.lead_id} for Slack: {e}")
+
     # Fire-and-forget Slack notification
     background_tasks.add_task(
         notify_slack_quote,
-        {
-            "lead_id": request.lead_id,
-            "full_name": "",  # Slack service will look up from lead if needed
-            "business_name": "",
-            "email": "",
-            "phone": "",
-            "annual_spend": "",
-        },
+        lead_data,
         {
             "quote_id": response.quote_id,
             "specifications": specifications,
@@ -170,3 +174,33 @@ async def request_manager(
 
     logger.info(f"Manager requested for quote {request.quote_id} by lead {request.lead_id}")
     return {"status": "ok"}
+
+
+@router.get("/quotes/lead/{lead_id}")
+async def quotes_for_lead(lead_id: str):
+    """Return all quotes for a given lead. Used by the shareable quotes page."""
+    lead = get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    quotes = get_quotes_by_lead(lead_id)
+
+    return {
+        "lead": {
+            "full_name": lead.get("full_name", ""),
+            "business_name": lead.get("business_name", ""),
+            "email": lead.get("email", ""),
+        },
+        "quotes": [
+            {
+                "id": q.get("id"),
+                "created_at": q.get("created_at"),
+                "specifications": q.get("specifications"),
+                "pricing_digital": q.get("pricing_digital"),
+                "pricing_flexo": q.get("pricing_flexo"),
+                "pricing_intl_air": q.get("pricing_intl_air"),
+                "pricing_intl_ocean": q.get("pricing_intl_ocean"),
+            }
+            for q in quotes
+        ],
+    }
