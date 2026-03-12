@@ -198,7 +198,7 @@ export function LeadCaptureForm({ onSubmit, isSubmitting = false }: Props) {
         disabled={isSubmitting}
         className="w-full rounded-lg bg-calyx-blue px-6 py-3 text-sm font-semibold text-white hover:bg-ocean-blue disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        {isSubmitting ? "Submitting..." : "See My Price"}
+        {isSubmitting ? "Submitting..." : "See My Quote"}
       </button>
     </form>
   );
