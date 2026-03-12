@@ -4,11 +4,11 @@ Lead capture router.
 POST /api/v1/leads - Capture a new lead before they can request quotes.
 """
 import logging
-import uuid
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from api.schemas.lead_request import LeadCaptureRequest, LeadCaptureResponse
+from api.services.supabase_client import insert_lead
 from api.services.slack_service import notify_slack_new_lead
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,25 @@ async def capture_lead(
     """
     Capture a new lead.
 
-    Generates a UUID that the customer uses as lead_id when requesting quotes.
-    In production this will persist to Supabase; for now it logs and returns.
+    Persists to Supabase customer_leads and returns the generated UUID
+    for use as lead_id when requesting quotes.
     """
-    lead_id = str(uuid.uuid4())
+    try:
+        row = insert_lead({
+            "full_name": request.full_name,
+            "business_name": request.business_name,
+            "email": request.email,
+            "phone": request.phone,
+            "annual_spend": request.annual_spend,
+        })
+    except Exception as e:
+        logger.error(f"Failed to persist lead: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save lead. Please try again.")
 
-    # TODO: Persist to Supabase
+    lead_id = row.get("id", "")
+    if not lead_id:
+        raise HTTPException(status_code=500, detail="Failed to save lead.")
+
     logger.info(
         f"Lead captured: {lead_id} | "
         f"{request.business_name} | "
