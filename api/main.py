@@ -63,8 +63,17 @@ app.include_router(quotes.router)
 @app.get("/api/v1/health")
 async def health_check():
     """Health check endpoint."""
+    from api.services.prediction_service import get_predictor
+    import sys
+    try:
+        predictor = get_predictor()
+        loaded = list(predictor.models.keys())
+    except Exception as e:
+        loaded = f"error: {e}"
     return {
         "status": "healthy",
         "service": "calyx-quoting-api",
         "version": "1.0.0",
+        "python": sys.version,
+        "models_loaded": loaded,
     }
