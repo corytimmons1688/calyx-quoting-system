@@ -30,7 +30,7 @@ function buildUnifiedTiers(): number[] {
 }
 
 export default function QuotePage() {
-  const { lead, saveLead, isLoaded } = useLeadSession();
+  const { lead, saveLead, clearLead, isLoaded } = useLeadSession();
 
   // Step management
   const [step, setStep] = useState<Step>("configure");
@@ -141,12 +141,9 @@ export default function QuotePage() {
   };
 
   const handleContinue = () => {
-    // If lead already captured in session, skip to results
-    if (lead) {
-      fetchQuote(lead.lead_id);
-    } else {
-      setStep("lead-capture");
-    }
+    // Always show the lead-capture step so returning visitors
+    // can confirm or update their info before getting a quote
+    setStep("lead-capture");
   };
 
   const handleLeadSubmit = async (data: {
@@ -323,7 +320,7 @@ export default function QuotePage() {
                 disabled={isLoading}
                 className="bg-calyx-blue text-white px-8 py-3 rounded-lg font-medium hover:bg-flash-blue transition-colors disabled:opacity-50"
               >
-                {isLoading ? "Loading..." : lead ? "See My Quote" : "Continue"}
+                {isLoading ? "Loading..." : "Continue"}
               </button>
             </div>
 
@@ -352,16 +349,56 @@ export default function QuotePage() {
         {/* Step 2: Lead Capture */}
         {step === "lead-capture" && (
           <div className="max-w-lg mx-auto space-y-6">
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-90">Tell Us About Your Business</h2>
-              <p className="mt-1 text-gray-60">
-                We need a few details before showing your pricing.
-              </p>
-            </div>
-            <LeadCaptureForm
-              onSubmit={handleLeadSubmit}
-              isSubmitting={isLoading}
-            />
+            {lead ? (
+              <>
+                <div>
+                  <h2 className="text-2xl font-semibold text-gray-90">Welcome Back</h2>
+                  <p className="mt-1 text-gray-60">
+                    We have your information on file. Continue to see your quote, or update your details.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-gray-10 bg-white p-6 space-y-3">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                    <span className="text-gray-40">Name</span>
+                    <span className="text-gray-90 font-medium">{lead.full_name}</span>
+                    <span className="text-gray-40">Business</span>
+                    <span className="text-gray-90 font-medium">{lead.business_name}</span>
+                    <span className="text-gray-40">Email</span>
+                    <span className="text-gray-90 font-medium">{lead.email}</span>
+                    <span className="text-gray-40">Phone</span>
+                    <span className="text-gray-90 font-medium">{lead.phone}</span>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => fetchQuote(lead.lead_id)}
+                    disabled={isLoading}
+                    className="flex-1 rounded-lg bg-calyx-blue px-6 py-3 text-sm font-semibold text-white hover:bg-flash-blue disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isLoading ? "Loading..." : "See My Quote"}
+                  </button>
+                  <button
+                    onClick={clearLead}
+                    className="rounded-lg border border-gray-10 px-6 py-3 text-sm font-medium text-gray-60 hover:text-gray-90 hover:border-gray-30 transition-colors"
+                  >
+                    Update Info
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <h2 className="text-2xl font-semibold text-gray-90">Tell Us About Your Business</h2>
+                  <p className="mt-1 text-gray-60">
+                    We need a few details before showing your pricing.
+                  </p>
+                </div>
+                <LeadCaptureForm
+                  onSubmit={handleLeadSubmit}
+                  isSubmitting={isLoading}
+                />
+              </>
+            )}
           </div>
         )}
 
