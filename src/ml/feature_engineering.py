@@ -61,14 +61,27 @@ CATEGORY_ORDERS = {
     "substrate": ["CLR_PET", "MET_PET", "WHT_MET_PET", "HB_CLR_PET", "CUSTOM"],
     "finish": ["None", "Matte Laminate", "Gloss Laminate", "Soft Touch Laminate", "Holographic"],
     "fill_style": ["Top", "Bottom"],
-    "seal_type": ["Stand Up", "2 Side Seal", "3 Side Seal", "3 Side Top Fill"],
-    "gusset_type": ["None", "K Seal", "K Seal & Skirt Seal", "Plow Bottom", "Flat Bottom / Side Gusset"],
-    "zipper": ["No Zipper", "Single Profile Non-CR", "Double Profile Non-CR",
-               "Standard CR", "CR Zipper", "Presto CR Zipper"],
-    "tear_notch": ["None", "Standard", "Double (2)"],
-    "hole_punch": ["None", "Standard", "Round (Butterfly)", "Euro Slot", "Sombrero"],
+    "seal_type": ["Side Seal", "Stand Up Pouch"],
+    "gusset_type": ["None", "K Seal & Skirt Seal", "Plow Bottom", "Flat Bottom / Side Gusset"],
+    "zipper": ["No Zipper", "Non-CR Zipper", "CR Zipper"],
+    "tear_notch": ["None", "Standard"],
+    "hole_punch": ["None", "Round", "Euro"],
     "corner_treatment": ["Straight", "Rounded"],
-    "embellishment": ["None", "Hot Stamp (Gold)", "Hot Stamp (Silver)", "Embossing", "Spot UV"],
+    "embellishment": ["None", "Foil", "Spot UV"],
+}
+
+# ML seal-type consolidation: UI shows 4 options for customer reference,
+# ML model sees only 2 to pool training data for better accuracy.
+SEAL_TYPE_ML_MAP = {
+    "Stand Up Pouch": "Stand Up Pouch",
+    "3 Side Seal - Top Fill": "Side Seal",
+    "3 Side Seal - Bottom Fill": "Side Seal",
+    "2 Side Seal - Top Fill": "Side Seal",
+    # Legacy values (backward compat during transition)
+    "Stand Up": "Stand Up Pouch",
+    "3 Side Seal": "Side Seal",
+    "2 Side Seal": "Side Seal",
+    "3 Side Top Fill": "Side Seal",
 }
 
 
@@ -77,7 +90,7 @@ def normalize_substrate(val: str) -> str:
     if not isinstance(val, str):
         return "CUSTOM"
     v = val.strip().upper().replace(' ', '_')
-    if 'HB' in v or 'HIGH_BARRIER' in v:
+    if 'HB' in v or 'HIGH_BARRIER' in v or 'ALOX' in v:
         return "HB_CLR_PET"
     if 'WHT' in v or 'WHITE' in v:
         return "WHT_MET_PET"
@@ -148,7 +161,7 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
         "substrate": "CUSTOM",
         "finish": "None",
         "fill_style": "Top",
-        "seal_type": "Stand Up",
+        "seal_type": "Stand Up Pouch",
         "gusset_type": "None",
         "zipper": "No Zipper",
         "tear_notch": "None",
@@ -162,6 +175,46 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
         else:
             df[col] = df[col].fillna(default)
 
+    # ── Consolidate seal_type for ML (UI keeps granular options) ──
+    df["seal_type"] = df["seal_type"].map(SEAL_TYPE_ML_MAP).fillna("Stand Up Pouch")
+
+    # ── Consolidate other categories to new canonical values ──────
+    # Hole punch: Standard and Round (Butterfly) → Round; Euro Slot and Sombrero → Euro
+    hole_punch_map = {
+        "None": "None", "Standard": "Round", "Round (Butterfly)": "Round",
+        "Round": "Round", "Euro Slot": "Euro", "Sombrero": "Euro", "Euro": "Euro",
+    }
+    df["hole_punch"] = df["hole_punch"].map(hole_punch_map).fillna("None")
+
+    # Tear notch: Double (2) → Standard
+    tear_notch_map = {"None": "None", "Standard": "Standard", "Double (2)": "Standard"}
+    df["tear_notch"] = df["tear_notch"].map(tear_notch_map).fillna("None")
+
+    # Zipper consolidation
+    zipper_map = {
+        "No Zipper": "No Zipper",
+        "CR Zipper": "CR Zipper", "Standard CR": "CR Zipper", "Presto CR Zipper": "CR Zipper",
+        "Single Profile Non-CR": "Non-CR Zipper", "Double Profile Non-CR": "Non-CR Zipper",
+        "Non-CR Zipper": "Non-CR Zipper",
+    }
+    df["zipper"] = df["zipper"].map(zipper_map).fillna("No Zipper")
+
+    # Embellishment consolidation
+    embellishment_map = {
+        "None": "None", "Spot UV": "Spot UV", "Foil": "Foil",
+        "Hot Stamp (Gold)": "Foil", "Hot Stamp (Silver)": "Foil", "Embossing": "Foil",
+    }
+    df["embellishment"] = df["embellishment"].map(embellishment_map).fillna("None")
+
+    # Gusset: consolidate K Seal → K Seal & Skirt Seal
+    gusset_map = {
+        "None": "None", "K Seal": "K Seal & Skirt Seal",
+        "K Seal & Skirt Seal": "K Seal & Skirt Seal",
+        "Plow Bottom": "Plow Bottom",
+        "Flat Bottom / Side Gusset": "Flat Bottom / Side Gusset",
+    }
+    df["gusset_type"] = df["gusset_type"].map(gusset_map).fillna("None")
+
     # ── Interaction features ────────────────────────────────────────
     # Area × quantity — captures how material cost scales
     df["area_x_logqty"] = df["bag_area_sqin"] * df["log_quantity"]
@@ -170,9 +223,7 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     df["has_gusset"] = (df["gusset"] > 0).astype(int)
 
     # Zipper complexity score (0-3)
-    zipper_score = {"No Zipper": 0, "Single Profile Non-CR": 1,
-                    "Double Profile Non-CR": 1.5, "Standard CR": 2,
-                    "CR Zipper": 3, "Presto CR Zipper": 3.5}
+    zipper_score = {"No Zipper": 0, "Non-CR Zipper": 1, "CR Zipper": 3}
     df["zipper_score"] = df["zipper"].map(zipper_score).fillna(0)
 
     # ── Ross cost-structure features ────────────────────────────────
@@ -197,6 +248,36 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
 
+    # ── Tedpack-specific features ───────────────────────────────────
+    # These are generated unconditionally so the DataFrame always has
+    # them available.  The preprocessor's column selection decides which
+    # features actually reach the model.  When the Tedpack models are
+    # retrained with the Colab pipeline these columns will be consumed;
+    # until then the preprocessor simply drops them via remainder="drop".
+
+    # Binary zipper flag (simpler than zipper_score for Tedpack models)
+    df["has_zipper"] = (df["zipper_score"] > 0).astype(int)
+
+    # Estimated pouch weight in grams (rough heuristic based on area)
+    # ~0.07 g/sq-in for typical PET laminate + ~2g for zipper if present
+    df["estimated_weight_g"] = (
+        df["bag_area_sqin"] * 0.07
+        + df["gusset"] * df["width"] * 0.035  # side gusset material
+        + df["has_zipper"] * 2.0              # zipper adds ~2g
+    )
+
+    # Number of SKUs in the quote (default 1 for single-spec prediction)
+    if "skus_in_quote" not in df.columns:
+        df["skus_in_quote"] = 1
+
+    # Gravure flag (Tedpack uses gravure printing)
+    if "print_method" in df.columns:
+        df["is_gravure"] = (
+            df["print_method"].str.lower().str.contains("gravure", na=False)
+        ).astype(int)
+    else:
+        df["is_gravure"] = 0
+
     return df
 
 
@@ -205,8 +286,10 @@ def build_preprocessor(vendor: str = "") -> ColumnTransformer:
     Build a sklearn ColumnTransformer that handles both numeric
     and ordinal encoding of categoricals.
 
-    For Ross, print_width is replaced with ross_stock_width (binary 26/30)
-    to prevent the continuous print_width from dominating importance.
+    Vendor-specific numeric feature lists:
+      - Ross: replaces print_width with ross_stock_width (binary 26/30)
+      - Tedpack: adds has_zipper, estimated_weight_g, skus_in_quote, is_gravure
+      - Dazpak / default: uses continuous print_width
 
     Note: No StandardScaler — GBR is tree-based so splits are
     invariant to scaling. Removing it avoids unnecessary state
@@ -234,8 +317,21 @@ def build_preprocessor(vendor: str = "") -> ColumnTransformer:
     if vendor == "ross":
         # Ross only uses 26" or 30" stock — binary feature instead
         all_numeric = base_numeric + ["ross_stock_width"]
+    elif vendor.startswith("tedpack"):
+        # Tedpack extended features — used when retraining from Colab pipeline.
+        # The currently deployed models use the same features as dazpak
+        # (print_width + base_numeric).  When you retrain, switch to this block
+        # by uncommenting the extended list below and commenting out the fallback.
+        #
+        # Extended (for retrained models):
+        # all_numeric = ["print_width"] + base_numeric + [
+        #     "has_zipper", "estimated_weight_g", "skus_in_quote", "is_gravure",
+        # ]
+        #
+        # Current (matches deployed tedpack_air/ocean models):
+        all_numeric = ["print_width"] + base_numeric
     else:
-        # Other vendors use continuous print_width
+        # Dazpak and others use continuous print_width
         all_numeric = ["print_width"] + base_numeric
 
     preprocessor = ColumnTransformer(
