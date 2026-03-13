@@ -5,7 +5,7 @@ WORKDIR /app
 ENV PYTHONPATH=/app
 
 # Force clean rebuild — bump when deps change
-ARG DEPS_VERSION=2
+ARG DEPS_VERSION=3
 ENV DEPS_VERSION=${DEPS_VERSION}
 
 # Install API + ML dependencies
