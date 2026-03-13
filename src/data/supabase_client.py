@@ -12,12 +12,30 @@ logger = logging.getLogger(__name__)
 
 
 def get_client():
-    """Lazy-initialize Supabase client."""
+    """Lazy-initialize Supabase client.
+
+    Tries config.settings first (reads from os.environ / .env).
+    Falls back to st.secrets directly — handles cases where the
+    settings.py import-time copy didn't pick up Streamlit Cloud secrets.
+    """
     from supabase import create_client
     from config.settings import SUPABASE_URL, SUPABASE_KEY
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise EnvironmentError("Set SUPABASE_URL and SUPABASE_KEY in .env")
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    url = SUPABASE_URL
+    key = SUPABASE_KEY
+
+    # Direct fallback to st.secrets if settings didn't resolve
+    if not url or not key:
+        try:
+            import streamlit as st
+            url = url or st.secrets.get("SUPABASE_URL", "")
+            key = key or st.secrets.get("SUPABASE_KEY", "")
+        except Exception:
+            pass
+
+    if not url or not key:
+        raise EnvironmentError("Set SUPABASE_URL and SUPABASE_KEY in .env or Streamlit secrets")
+    return create_client(url, key)
 
 
 # ── Run this SQL in the Supabase SQL Editor ────────────────────────
@@ -32,8 +50,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     created_at      TIMESTAMPTZ DEFAULT now(),
 
     -- Source tracking
-    vendor          TEXT NOT NULL CHECK (vendor IN ('dazpak','ross','internal')),
-    print_method    TEXT NOT NULL CHECK (print_method IN ('digital','flexographic')),
+    vendor          TEXT NOT NULL CHECK (vendor IN ('dazpak','ross','internal','tedpack')),
+    print_method    TEXT NOT NULL CHECK (print_method IN ('digital','flexographic','gravure')),
     fl_number       TEXT,                 -- e.g. FL-DL-1495, FL-CQ-0855
     quote_number    TEXT,                 -- Dazpak Quote # or Ross Estimate No.
     quote_date      DATE,
@@ -94,7 +112,12 @@ CREATE TABLE IF NOT EXISTS quote_prices (
     -- Adder for each additional SKU
     adder_per_m_imps   NUMERIC(12,4),
     adder_per_msi      NUMERIC(10,4),
-    adder_per_ea_imp   NUMERIC(10,4)
+    adder_per_ea_imp   NUMERIC(10,4),
+
+    -- TedPack-specific pricing (DDP = Delivered Duty Paid)
+    ddp_air_price      NUMERIC(10,5),   -- DDP Air $/pc
+    ddp_ocean_price    NUMERIC(10,5),   -- DDP Ocean $/pc
+    fob_factory_price  NUMERIC(10,5)    -- FOB Factory $/pc
 );
 
 -- ML model registry
@@ -190,6 +213,82 @@ def insert_quote(quote_data: dict, prices: list[dict]) -> Optional[str]:
         return None
 
 
+def _split_tedpack_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Split vendor='tedpack' rows into tedpack_air and tedpack_ocean.
+
+    The Supabase schema stores TedPack quotes with vendor='tedpack' and
+    separate ddp_air_price / ddp_ocean_price columns in quote_prices.
+    The ML training pipeline expects vendor='tedpack_air' and
+    vendor='tedpack_ocean' as separate rows with unit_price set to the
+    respective DDP price.
+
+    Non-tedpack rows pass through unchanged.
+    """
+    if "vendor" not in df.columns:
+        return df
+
+    tedpack_mask = df["vendor"] == "tedpack"
+    if not tedpack_mask.any():
+        return df
+
+    non_tedpack = df[~tedpack_mask].copy()
+    tedpack = df[tedpack_mask].copy()
+
+    split_rows = []
+
+    # Convert DDP columns to numeric (they may arrive as strings from Supabase)
+    for col in ("ddp_air_price", "ddp_ocean_price"):
+        if col in tedpack.columns:
+            tedpack[col] = pd.to_numeric(tedpack[col], errors="coerce")
+
+    # Air rows: use ddp_air_price where available, else fall back to unit_price
+    has_air = (
+        "ddp_air_price" in tedpack.columns
+        and tedpack["ddp_air_price"].notna().any()
+    )
+    if has_air:
+        air_df = tedpack[tedpack["ddp_air_price"].notna()].copy()
+        air_df["vendor"] = "tedpack_air"
+        air_df["unit_price"] = air_df["ddp_air_price"]
+        split_rows.append(air_df)
+    else:
+        # Fallback: if no DDP air prices, use unit_price for air
+        air_df = tedpack.copy()
+        air_df["vendor"] = "tedpack_air"
+        split_rows.append(air_df)
+        logger.warning("No ddp_air_price data — using unit_price as fallback for tedpack_air")
+
+    # Ocean rows: use ddp_ocean_price where available
+    has_ocean = (
+        "ddp_ocean_price" in tedpack.columns
+        and tedpack["ddp_ocean_price"].notna().any()
+    )
+    if has_ocean:
+        ocean_df = tedpack[tedpack["ddp_ocean_price"].notna()].copy()
+        ocean_df["vendor"] = "tedpack_ocean"
+        ocean_df["unit_price"] = ocean_df["ddp_ocean_price"]
+        split_rows.append(ocean_df)
+    else:
+        logger.warning("No ddp_ocean_price data — tedpack_ocean will have no training rows")
+
+    result = pd.concat([non_tedpack] + split_rows, ignore_index=True)
+
+    # Clean up DDP columns (no longer needed after split)
+    for col in ("ddp_air_price", "ddp_ocean_price"):
+        if col in result.columns:
+            result = result.drop(columns=[col])
+
+    tedpack_air_count = len(result[result["vendor"] == "tedpack_air"])
+    tedpack_ocean_count = len(result[result["vendor"] == "tedpack_ocean"])
+    logger.info(
+        f"TedPack split: {tedpack_mask.sum()} tedpack rows → "
+        f"{tedpack_air_count} tedpack_air + {tedpack_ocean_count} tedpack_ocean"
+    )
+
+    return result
+
+
 def fetch_training_data() -> pd.DataFrame:
     """Fetch all quotes + prices as a flat DataFrame for ML training.
 
@@ -215,11 +314,16 @@ def fetch_training_data() -> pd.DataFrame:
                 row["price_per_m_imps"] = p.get("price_per_m_imps")
                 row["price_per_msi"] = p.get("price_per_msi")
                 row["tolerance_pct"] = p.get("tolerance_pct")
+                row["ddp_air_price"] = p.get("ddp_air_price")
+                row["ddp_ocean_price"] = p.get("ddp_ocean_price")
                 rows.append(row)
         df = pd.DataFrame(rows)
 
         if df.empty:
             return df
+
+        # ── Split TedPack rows into tedpack_air / tedpack_ocean ───
+        df = _split_tedpack_rows(df)
 
         # ── Deduplication: keep latest revision per spec+qty ──────
         df = deduplicate_training_data(df)
