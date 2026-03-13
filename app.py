@@ -24,7 +24,7 @@ from datetime import datetime
 
 from config.settings import (
     SUBSTRATE_OPTIONS, SUBSTRATE_CANONICAL,
-    FINISH_UI_OPTIONS, EMBELLISHMENT_UI_OPTIONS,
+    FINISH_UI_OPTIONS,
     FILL_STYLE_OPTIONS, SEAL_TYPE_UI_OPTIONS,
     GUSSET_UI_OPTIONS, ZIPPER_UI_OPTIONS,
     TEAR_NOTCH_UI_OPTIONS, HOLE_PUNCH_UI_OPTIONS,
@@ -34,6 +34,12 @@ from config.settings import (
     DAZPAK_MIN_ORDER_QTY, ROSS_MIN_PRINT_WIDTH_INCHES,
     MODEL_DIR, ASSETS_DIR, CALYX_REPS,
 )
+# Import embellishment options — handle both old and new settings layouts
+try:
+    from config.settings import EMBELLISHMENT_UI_OPTIONS_GRAVURE, EMBELLISHMENT_UI_OPTIONS_DEFAULT
+    EMBELLISHMENT_UI_OPTIONS = EMBELLISHMENT_UI_OPTIONS_DEFAULT
+except ImportError:
+    from config.settings import EMBELLISHMENT_UI_OPTIONS
 from src.utils.validation import validate_all
 from src.utils.formatting import (
     predictions_to_dataframe, cost_factors_to_dataframe,
@@ -43,7 +49,7 @@ from src.utils.vendor_routing import route_vendor, calculate_print_width
 
 # ── Page Config ─────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Calyx Quoting System- Mirhaan's Draft",
+    page_title="Calyx Quoting System",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
