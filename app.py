@@ -1225,7 +1225,7 @@ if page == "🏷️ Quote Builder":
 
     st.markdown("""
     <div class="page-header">
-        <h1>Packaging Estimate Generator</h1>
+        <h1>Packaging Estimate Generator Mirhaan Version</h1>
         <p>Get instant cost estimates for custom flexible packaging. Enter your bag specs and quantities below — pricing is generated from historical production data and vendor cost models.</p>
     </div>
     """, unsafe_allow_html=True)
