@@ -104,7 +104,8 @@ class QuoteModelTrainer:
         # split — otherwise the model "cheats" by seeing the same bag's
         # cost at 5K in training and predicting it at 25K in test.
         if "fl_number" in df.columns:
-            groups = df["fl_number"].fillna("no_fl_" + df.index.astype(str))
+            fallback = "no_fl_" + df.index.astype(str)
+            groups = df["fl_number"].where(df["fl_number"].notna(), fallback)
         else:
             groups = pd.Series("no_fl_" + df.index.astype(str), index=df.index)
 
