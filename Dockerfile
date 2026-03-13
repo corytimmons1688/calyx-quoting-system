@@ -4,13 +4,9 @@ WORKDIR /app
 
 ENV PYTHONPATH=/app
 
-# Force clean rebuild — bump when deps change
-ARG DEPS_VERSION=3
-ENV DEPS_VERSION=${DEPS_VERSION}
-
 # Install API + ML dependencies
-COPY api/requirements.txt ./api-requirements.txt
-RUN pip install --no-cache-dir -r api-requirements.txt
+COPY api/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy API code
 COPY api/ /app/api/
