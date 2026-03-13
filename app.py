@@ -43,7 +43,7 @@ from src.utils.vendor_routing import route_vendor, calculate_print_width
 
 # ── Page Config ─────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Calyx Quoting System",
+    page_title="Calyx Quoting System- Mirhaan's Draft",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
