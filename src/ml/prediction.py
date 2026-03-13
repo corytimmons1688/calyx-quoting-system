@@ -13,10 +13,25 @@ import pandas as pd
 
 from config.settings import (
     DAZPAK_MIN_ORDER_QTY, ROSS_MIN_PRINT_WIDTH_INCHES,
-    INTERNAL_MAX_WEB_WIDTH, TEDPACK_MIN_ORDER_QTY,
+    INTERNAL_MAX_WEB_WIDTH,
     DEFAULT_QTY_TIERS, DAZPAK_DEFAULT_TIERS, ROSS_DEFAULT_TIERS,
-    TEDPACK_CONSERVATIVE_BLEND, TEDPACK_MIN_CI_HALF_WIDTH,
 )
+
+# Tedpack settings may not exist in older settings.py versions
+try:
+    from config.settings import TEDPACK_MIN_ORDER_QTY
+except ImportError:
+    TEDPACK_MIN_ORDER_QTY = 2_500
+
+try:
+    from config.settings import TEDPACK_CONSERVATIVE_BLEND
+except ImportError:
+    TEDPACK_CONSERVATIVE_BLEND = 0.10
+
+try:
+    from config.settings import TEDPACK_MIN_CI_HALF_WIDTH
+except ImportError:
+    TEDPACK_MIN_CI_HALF_WIDTH = 0.12
 from src.ml.feature_engineering import prepare_features
 from src.ml.model_training import QuoteModelTrainer
 from src.ml.internal_calculator import calculate_internal_quote

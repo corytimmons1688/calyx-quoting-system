@@ -24,7 +24,7 @@ from datetime import datetime
 
 from config.settings import (
     SUBSTRATE_OPTIONS, SUBSTRATE_CANONICAL,
-    FINISH_UI_OPTIONS, EMBELLISHMENT_UI_OPTIONS,
+    FINISH_UI_OPTIONS,
     FILL_STYLE_OPTIONS, SEAL_TYPE_UI_OPTIONS,
     GUSSET_UI_OPTIONS, ZIPPER_UI_OPTIONS,
     TEAR_NOTCH_UI_OPTIONS, HOLE_PUNCH_UI_OPTIONS,
@@ -34,6 +34,12 @@ from config.settings import (
     DAZPAK_MIN_ORDER_QTY, ROSS_MIN_PRINT_WIDTH_INCHES,
     MODEL_DIR, ASSETS_DIR, CALYX_REPS,
 )
+# Import embellishment options — handle both old and new settings layouts
+try:
+    from config.settings import EMBELLISHMENT_UI_OPTIONS_GRAVURE, EMBELLISHMENT_UI_OPTIONS_DEFAULT
+    EMBELLISHMENT_UI_OPTIONS = EMBELLISHMENT_UI_OPTIONS_DEFAULT
+except ImportError:
+    from config.settings import EMBELLISHMENT_UI_OPTIONS
 from src.utils.validation import validate_all
 from src.utils.formatting import (
     predictions_to_dataframe, cost_factors_to_dataframe,
@@ -144,6 +150,9 @@ st.markdown("""
     }
     .vendor-internal {
         background: #faf5ff; color: #6b21a8; border: 1px solid #e9d5ff;
+    }
+    .vendor-tedpack {
+        background: #fefce8; color: #854d0e; border: 1px solid #fde68a;
     }
 
     /* ── Routing Box ────────────────────────────────── */
@@ -310,6 +319,9 @@ with st.sidebar:
 
     **Internal** — HP 6900 (≤12" web)
     In-house digital · Tiers: 500–50K
+
+    **TedPack** — Gravure (overseas)
+    DDP Air/Ocean · Tiers: 10K–500K
     """)
 
 
@@ -602,6 +614,168 @@ def _penny_step_chart(result: dict, margin_multiplier: float) -> "go.Figure | No
     return fig
 
 
+def _render_tedpack_comparison(result: dict, preds: list, margin_multiplier: float,
+                                margin_pct: int):
+    """
+    Render a full TedPack vs current-vendor comparison panel.
+    Shows air + ocean pricing side-by-side with savings delta,
+    lead time bars, and sweet-spot highlighting.
+    """
+    import json
+
+    specs = result.get("specs", {})
+    current_vendor = result.get("vendor", "ross")
+    vendor_labels = {"ross": "Ross", "dazpak": "Dazpak", "internal": "Internal", "tedpack": "TedPack"}
+    current_label = vendor_labels.get(current_vendor, current_vendor.title())
+
+    user_qtys = sorted([p["quantity"] for p in preds])
+
+    # Run Tedpack predictions
+    specs_key = json.dumps({k: v for k, v in specs.items() if k != "quantity"}, sort_keys=True)
+    ted_preds = _sweep_predictions(specs_key, "tedpack", tuple(user_qtys))
+
+    if not ted_preds:
+        st.warning("TedPack models not available. Train TedPack models first via Model Manager.")
+        return
+
+    # ── Lead Time Comparison ──────────────────────────────────────
+    lead_times = {
+        "internal": ("1–2 days", 2),
+        "ross": ("2–3 weeks", 18),
+        "dazpak": ("3–5 weeks", 28),
+    }
+    current_lt_label, current_lt_days = lead_times.get(current_vendor, ("2–3 weeks", 18))
+
+    st.html(f'''
+    <div style="background:#fafafa;border-radius:10px;padding:16px 20px;margin:12px 0 16px;">
+        <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;
+                    color:#6b7280;margin-bottom:12px;">Lead Time Comparison</div>
+        <div style="display:flex;gap:12px;align-items:stretch;">
+            <div style="flex:1;background:white;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:0.72rem;color:#6b7280;">{current_label}</div>
+                <div style="font-size:1.1rem;font-weight:700;color:#1a472a;margin:4px 0;">{current_lt_label}</div>
+                <div style="background:#2d6a4f;height:6px;border-radius:3px;width:{min(current_lt_days / 50 * 100, 100):.0f}%;
+                            margin:0 auto;"></div>
+            </div>
+            <div style="flex:1;background:white;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:0.72rem;color:#6b7280;">🚢 TedPack Ocean</div>
+                <div style="font-size:1.1rem;font-weight:700;color:#1e6091;margin:4px 0;">5–7 weeks</div>
+                <div style="background:#1e6091;height:6px;border-radius:3px;width:{min(42 / 50 * 100, 100):.0f}%;
+                            margin:0 auto;"></div>
+            </div>
+            <div style="flex:1;background:white;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:0.72rem;color:#6b7280;">✈️ TedPack Air</div>
+                <div style="font-size:1.1rem;font-weight:700;color:#854d0e;margin:4px 0;">1–2 weeks</div>
+                <div style="background:#854d0e;height:6px;border-radius:3px;width:{min(10 / 50 * 100, 100):.0f}%;
+                            margin:0 auto;"></div>
+            </div>
+        </div>
+    </div>''')
+
+    # ── Side-by-side Pricing Table ────────────────────────────────
+    table_html = f'''<table class="tp-comp">
+    <thead><tr>
+        <th>Qty</th>
+        <th class="r">{current_label} Sell</th>
+        <th class="r">🚢 Ocean Sell</th>
+        <th class="r">Ocean Δ</th>
+        <th class="r">✈️ Air Sell</th>
+        <th class="r">Air Δ</th>
+    </tr></thead><tbody>'''
+
+    for p_curr, p_ted in zip(preds, ted_preds):
+        qty = p_curr["quantity"]
+        curr_sell = p_curr["unit_price"] * margin_multiplier
+
+        ocean_cost = p_ted.get("ocean_unit_price")
+        air_cost = p_ted.get("air_unit_price")
+        ocean_sell = ocean_cost * margin_multiplier if ocean_cost else None
+        air_sell = air_cost * margin_multiplier if air_cost else None
+
+        # Ocean delta
+        if ocean_sell and curr_sell > 0:
+            ocean_delta = ocean_sell - curr_sell
+            ocean_pct = ocean_delta / curr_sell * 100
+            if ocean_pct < -10:
+                delta_style = "color:#166534;font-weight:600;"
+                row_bg = "background:#f0fdf4;"
+            elif ocean_pct < -3:
+                delta_style = "color:#15803d;"
+                row_bg = ""
+            elif ocean_pct > 3:
+                delta_style = "color:#dc2626;"
+                row_bg = ""
+            else:
+                delta_style = "color:#6b7280;"
+                row_bg = ""
+            ocean_delta_str = f'<span style="{delta_style}">{ocean_pct:+.1f}%</span>'
+            ocean_sell_str = f"${ocean_sell:.4f}"
+        else:
+            ocean_sell_str = "—"
+            ocean_delta_str = "—"
+            row_bg = ""
+
+        # Air delta
+        if air_sell and curr_sell > 0:
+            air_delta = air_sell - curr_sell
+            air_pct = air_delta / curr_sell * 100
+            air_delta_style = f"color:{'#166534' if air_pct < -3 else '#dc2626' if air_pct > 3 else '#6b7280'};"
+            air_delta_str = f'<span style="{air_delta_style}">{air_pct:+.1f}%</span>'
+            air_sell_str = f"${air_sell:.4f}"
+        else:
+            air_sell_str = "—"
+            air_delta_str = "—"
+
+        table_html += f'''<tr style="{row_bg}">
+            <td class="qty">{qty:,}</td>
+            <td class="r">${curr_sell:.4f}</td>
+            <td class="r">{ocean_sell_str}</td>
+            <td class="r">{ocean_delta_str}</td>
+            <td class="r">{air_sell_str}</td>
+            <td class="r">{air_delta_str}</td>
+        </tr>'''
+
+    table_html += '</tbody></table>'
+
+    st.html(f'''<style>
+    .tp-comp {{ width:100%;border-collapse:collapse;font-size:0.8rem; }}
+    .tp-comp th {{ text-align:left;padding:0.45rem 0.6rem;font-size:0.62rem;font-weight:600;
+        letter-spacing:0.06em;text-transform:uppercase;color:#6b7280;border-bottom:2px solid #1a1a1a; }}
+    .tp-comp th.r {{ text-align:right; }}
+    .tp-comp td {{ padding:0.45rem 0.6rem;border-bottom:1px solid #e5e7eb;font-family:'IBM Plex Mono',monospace;font-size:0.78rem; }}
+    .tp-comp td.r {{ text-align:right; }}
+    .tp-comp td.qty {{ font-weight:600; }}
+    </style>{table_html}''')
+
+    # ── Summary insight ───────────────────────────────────────────
+    # Find the best ocean saving
+    best_saving_pct = 0
+    best_saving_qty = 0
+    for p_curr, p_ted in zip(preds, ted_preds):
+        curr_sell = p_curr["unit_price"] * margin_multiplier
+        ocean_cost = p_ted.get("ocean_unit_price")
+        if ocean_cost and curr_sell > 0:
+            ocean_sell = ocean_cost * margin_multiplier
+            saving_pct = (curr_sell - ocean_sell) / curr_sell * 100
+            if saving_pct > best_saving_pct:
+                best_saving_pct = saving_pct
+                best_saving_qty = p_curr["quantity"]
+
+    if best_saving_pct > 3:
+        st.html(f'''
+        <div style="background:#f0fdf4;border-left:3px solid #2d6a4f;border-radius:0 6px 6px 0;
+                    padding:10px 14px;margin-top:10px;font-size:0.82rem;color:#1a1a1a;
+                    font-family:'Instrument Sans',sans-serif;">
+            🌏 <strong>TedPack ocean saves up to {best_saving_pct:.0f}%</strong> at {best_saving_qty:,} units vs {current_label}.
+            Trade-off: 5–7 week ocean lead time vs {current_lt_label} domestic.
+            Air freight narrows the gap but delivers in 1–2 weeks.
+        </div>''')
+    elif best_saving_pct > 0:
+        st.caption(f"TedPack ocean is {best_saving_pct:.1f}% cheaper at {best_saving_qty:,} — marginal savings, domestic likely better value given lead time.")
+    else:
+        st.caption(f"TedPack is not cheaper than {current_label} at these quantities. Domestic is the better option.")
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def _vendor_alternatives_ai(vendor: str, specs_key: str, tier_summary: str) -> str:
     """
@@ -698,8 +872,8 @@ def _render_results(result: dict, margin_pct: int = 35):
     if preds:
         mcols = st.columns(3)
         with mcols[0]:
-            vendor_label = {"dazpak": "Dazpak", "ross": "Ross", "internal": "Internal"}.get(result["vendor"], result["vendor"])
-            vendor_class = {"dazpak": "vendor-dazpak", "ross": "vendor-ross", "internal": "vendor-internal"}.get(result["vendor"], "")
+            vendor_label = {"dazpak": "Dazpak", "ross": "Ross", "internal": "Internal", "tedpack": "TedPack"}.get(result["vendor"], result["vendor"])
+            vendor_class = {"dazpak": "vendor-dazpak", "ross": "vendor-ross", "internal": "vendor-internal", "tedpack": "vendor-tedpack"}.get(result["vendor"], "")
             st.markdown(f"""
             <div class="metric-card">
                 <div class="label">Vendor</div>
@@ -712,7 +886,13 @@ def _render_results(result: dict, margin_pct: int = 35):
                 <div class="value" style="font-size:1rem; font-family:'Instrument Sans',sans-serif;">{result['print_method'].title()}</div>
             </div>""", unsafe_allow_html=True)
         with mcols[2]:
-            mape = result.get("model_metrics", {}).get("mape", None)
+            mm = result.get("model_metrics", {})
+            # TedPack has nested metrics per sub-model — average the MAPEs
+            if result.get("vendor") == "tedpack" and isinstance(mm, dict):
+                mapes = [v.get("mape") for v in mm.values() if isinstance(v, dict) and v.get("mape") is not None]
+                mape = sum(mapes) / len(mapes) if mapes else None
+            else:
+                mape = mm.get("mape", None)
 
             if isinstance(mape, (int, float)):
                 if mape <= 5:
@@ -786,6 +966,18 @@ def _render_results(result: dict, margin_pct: int = 35):
         .comp-table tr.best td {{ background:#ecfdf5; }}
         </style>{table_html}"""
         st.html(styled_table)
+
+        # ── TedPack Comparison Toggle ──────────────────────────────
+        # Show "What if TedPack?" when current vendor is domestic
+        is_tedpack_routed = result.get("vendor") == "tedpack"
+        if not is_tedpack_routed and len(preds) > 0:
+            show_tedpack = st.toggle(
+                "🌏 What would TedPack cost?",
+                value=False,
+                help="Compare your domestic quote against TedPack gravure pricing with ocean and air freight options.",
+            )
+            if show_tedpack:
+                _render_tedpack_comparison(result, preds, margin_multiplier, margin_pct)
 
         # ── Download Estimate PDF ──────────────────────────────────
         try:
@@ -1058,7 +1250,7 @@ if page == "🏷️ Quote Builder":
         calyx_rep = st.selectbox("Calyx Rep", CALYX_REPS)
     with cust_cols[2]:
         print_method = st.selectbox("Print Method", PRINT_METHODS,
-                                    help="Flexographic → Dazpak | Digital: ≤12\" → Internal, >12\" → Ross")
+                                    help="Digital: ≤12\" → Internal, >12\" → Ross | Flexographic → Dazpak | Gravure → TedPack")
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
@@ -1163,11 +1355,12 @@ if page == "🏷️ Quote Builder":
 
         # ── Vendor Routing Preview ──────────────────────────────────
         routing = route_vendor(print_method, height, gusset, quantities)
-        vendor_class_map = {"dazpak": "vendor-dazpak", "ross": "vendor-ross", "internal": "vendor-internal"}
+        vendor_class_map = {"dazpak": "vendor-dazpak", "ross": "vendor-ross", "internal": "vendor-internal", "tedpack": "vendor-tedpack"}
         vendor_label_map = {
             "dazpak": "Dazpak (Flexographic)",
             "ross": "Ross (Digital)",
             "internal": "Internal — HP 6900 (Digital)",
+            "tedpack": "TedPack (Gravure)",
         }
         vendor_class = vendor_class_map.get(routing["vendor"], "vendor-internal")
         vendor_label = vendor_label_map.get(routing["vendor"], routing["vendor"])
@@ -1321,7 +1514,7 @@ elif page == "📊 Analytics":
                 fig = px.histogram(
                     data, x="unit_price", color="vendor",
                     barmode="overlay", nbins=40,
-                    color_discrete_map={"dazpak": "#166534", "ross": "#1e40af", "internal": "#6b21a8"},
+                    color_discrete_map={"dazpak": "#166534", "ross": "#1e40af", "internal": "#6b21a8", "tedpack_air": "#854d0e", "tedpack_ocean": "#0e7490"},
                 )
                 fig.update_layout(template="plotly_white", height=400)
                 st.plotly_chart(fig, use_container_width=True)
@@ -1332,7 +1525,7 @@ elif page == "📊 Analytics":
                     data, x="quantity", y="unit_price",
                     color="vendor" if "vendor" in data.columns else None,
                     size="bag_area_sqin" if "bag_area_sqin" in data.columns else None,
-                    color_discrete_map={"dazpak": "#166534", "ross": "#1e40af", "internal": "#6b21a8"},
+                    color_discrete_map={"dazpak": "#166534", "ross": "#1e40af", "internal": "#6b21a8", "tedpack_air": "#854d0e", "tedpack_ocean": "#0e7490"},
                     labels={"quantity": "Order Quantity", "unit_price": "Unit Price ($)"},
                     log_x=True,
                 )
@@ -1344,7 +1537,7 @@ elif page == "📊 Analytics":
                 fig = px.box(
                     data, x="substrate", y="unit_price",
                     color="vendor" if "vendor" in data.columns else None,
-                    color_discrete_map={"dazpak": "#166534", "ross": "#1e40af", "internal": "#6b21a8"},
+                    color_discrete_map={"dazpak": "#166534", "ross": "#1e40af", "internal": "#6b21a8", "tedpack_air": "#854d0e", "tedpack_ocean": "#0e7490"},
                 )
                 fig.update_layout(template="plotly_white", height=400)
                 st.plotly_chart(fig, use_container_width=True)
@@ -1376,11 +1569,14 @@ elif page == "⚙️ Model Manager":
         This will train separate Gradient Boosting models for:
         - **Dazpak** (Flexographic) — predicts Price/Ea Impression
         - **Ross** (Digital >12") — predicts unit price per bag
-        - **Internal** (Digital ≤12" / HP 6900) — predicts unit cost per bag (log-target)
+        - **Internal** (Digital ≤12" / HP 6900) — deterministic calculator (no ML)
+        - **TedPack Air** (Gravure, overseas) — predicts DDP Air price per bag
+        - **TedPack Ocean** (Gravure, overseas) — predicts DDP Ocean price per bag
 
         Each model includes:
-        - Point prediction (squared error loss)
-        - Lower/upper confidence bounds (10th/90th quantile regression)
+        - Point prediction (Huber loss)
+        - Lower/upper confidence bounds (quantile regression)
+        - Group-based train/test split (no data leakage across FL numbers)
         - Cross-validated performance metrics
         - **Recency weighting** — quotes from the last 90 days get 3× training weight
         """)
@@ -1418,13 +1614,21 @@ elif page == "⚙️ Model Manager":
     with tab_metrics:
         st.markdown("### Current Model Performance")
 
-        for vendor in ["dazpak", "ross"]:
+        for vendor in ["dazpak", "ross", "tedpack_air", "tedpack_ocean"]:
             try:
                 import joblib
                 metrics = joblib.load(MODEL_DIR / f"{vendor}_metrics.joblib")
                 importances = joblib.load(MODEL_DIR / f"{vendor}_importances.joblib")
 
-                st.markdown(f"#### {vendor.title()} Model")
+                # Friendly display name
+                display_name = {
+                    "dazpak": "Dazpak (Flexographic)",
+                    "ross": "Ross (Digital)",
+                    "tedpack_air": "TedPack Air (Gravure)",
+                    "tedpack_ocean": "TedPack Ocean (Gravure)",
+                }.get(vendor, vendor.title())
+
+                st.markdown(f"#### {display_name}")
                 metric_cols = st.columns(5)
                 with metric_cols[0]:
                     st.metric("MAPE", f"{metrics['mape']:.1f}%")
@@ -1433,20 +1637,28 @@ elif page == "⚙️ Model Manager":
                 with metric_cols[2]:
                     st.metric("R²", f"{metrics['r2']:.3f}")
                 with metric_cols[3]:
-                    st.metric("90% CI Coverage", f"{metrics['coverage_90']:.0f}%")
+                    ci_label = metrics.get("ci_bounds", "90%")
+                    st.metric(f"{ci_label} CI Coverage", f"{metrics['coverage_90']:.0f}%")
                 with metric_cols[4]:
                     st.metric("CV MAPE", f"{metrics['cv_mape_mean']:.1f}% ± {metrics['cv_mape_std']:.1f}%")
 
-                # Show recency weighting info if present
+                # Show group split + recency info
+                extra_info = []
+                if metrics.get("group_split"):
+                    extra_info.append(
+                        f"🔀 Group split: {metrics.get('n_groups_train', '?')} FL groups train / "
+                        f"{metrics.get('n_groups_test', '?')} test"
+                    )
                 if metrics.get("recency_weighting"):
                     n_recent = metrics.get("n_recent_train", "?")
                     n_total = metrics.get("n_train", "?")
-                    recent_days = metrics.get("recency_recent_days", 90)
-                    st.caption(
-                        f"📅 Recency weighted: {n_recent}/{n_total} training samples "
-                        f"from last {recent_days} days received "
+                    date_col = metrics.get("recency_date_column", "created_at")
+                    extra_info.append(
+                        f"📅 Recency ({date_col}): {n_recent}/{n_total} recent samples × "
                         f"{metrics.get('recency_recent_weight', 3.0):.0f}× weight"
                     )
+                if extra_info:
+                    st.caption(" · ".join(extra_info))
 
                 # Feature importance chart
                 imp_items = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:12]
