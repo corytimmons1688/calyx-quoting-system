@@ -219,6 +219,7 @@ def ingest_vendor(vendor: str, folder_id: str, extract_fn, drive_service, supaba
                         "vendor": vendor,
                         "print_method": print_method,
                         "fl_number": parsed_fl or None,
+                        "quote_date": quote_data.get("quote_date"),
                         "width": quote_data.get("width"),
                         "height": quote_data.get("height"),
                         "gusset": quote_data.get("gusset", 0),
