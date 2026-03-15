@@ -328,6 +328,15 @@ def fetch_training_data() -> pd.DataFrame:
         # ── Deduplication: keep latest revision per spec+qty ──────
         df = deduplicate_training_data(df)
 
+        # ── Exclude rows with NULL finish from training ─────────
+        # Business rule: every real bag has a finish. Rows without
+        # finish are unparseable legacy data that would skew the model.
+        before_finish = len(df)
+        df = df[df["finish"].notna()]
+        dropped = before_finish - len(df)
+        if dropped:
+            logger.info(f"Excluded {dropped} rows with NULL finish from training data")
+
         return df
     except Exception as e:
         logger.error(f"Fetch training data failed: {e}")

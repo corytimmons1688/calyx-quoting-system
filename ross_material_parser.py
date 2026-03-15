@@ -56,7 +56,7 @@ ROSS_SUBSTRATE_MAP = {
     "5101": "MET PET",      # 48PET/10#LDPE/FOIL — not currently used
     "5309": "HB CLR PET",   # 3mil CLEAR EVOH LDPE (SUP) — high barrier clear
     "5312": "CLR PET",      # 46ga PVDC PET / 3.0mil CLEAR LDPE
-    "5313": "ALOX PET",     # .50 ALOX PET / 3.0 LLDPE
+    "5313": "HB CLR PET",   # .50 ALOX PET / 3.0 LLDPE → HB CLR PET (high-barrier clear)
     "5408": "WHT MET PET",  # EZTEAR WHITE LAMINATED POUCH STRUCTURE
     "5701": "CLR PET",      # CLEAR STAND UP POUCH
     "5999": None,           # CUSTOMER SUPPLIED MATERIAL — unknown
@@ -64,7 +64,7 @@ ROSS_SUBSTRATE_MAP = {
 
 # Keyword fallback for substrate
 ROSS_SUBSTRATE_KEYWORDS = {
-    "ALOX": "ALOX PET",
+    "ALOX": "HB CLR PET",
     "EVOH": "HB CLR PET",
     "WHITE MET PET": "WHT MET PET",
     "WHITE COSMETIC": "WHT MET PET",
@@ -360,11 +360,11 @@ def test_parser():
         ),
         (
             "Stock#39051.5milKARESSTHERMALTACTILEOVERLAMINATE / Stock#531346gaPVDCPET/3.0milCLEARLDPE",
-            None, "Soft Touch", None  # 5313 = ALOX PET
+            "HB CLR PET", "Soft Touch", None  # 5313 = ALOX PET → HB CLR PET
         ),
         (
             "Stock# 3905 1.5 mil KARESS THERMAL TACTILE OVER LAMINATE / Stock# 5313 .50 ALOX PET / 3.0 LLDPE",
-            "ALOX PET", "Soft Touch", None
+            "HB CLR PET", "Soft Touch", None
         ),
         (
             "Stock#39121.4MILRAINBOWHOLOGRAFIKTHERMALLAMINATION / Stock#53093milCLEAREVOHLDPE(SUP)",
