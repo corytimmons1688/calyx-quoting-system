@@ -423,21 +423,18 @@ def _penny_step_chart(result: dict, margin_multiplier: float) -> "go.Figure | No
     if not preds:
         return None
 
-    # ── Quantity sweep range per vendor ─────────────────────────────
-    sweep_map = {
-        "dazpak":   (35_000, 2_000_000),
-        "ross":     (1_000, 300_000),
-        "internal": (500, 100_000),
-        "tedpack":  (10_000, 1_000_000),
-    }
-    lo, hi = sweep_map.get(vendor, (1_000, 300_000))
-    max_user_qty = max((p["quantity"] for p in preds), default=hi)
-    hi = max(hi, int(max_user_qty * 1.1))
+# ── Quantity sweep range — driven by user's actual tiers ─────────
+    user_qtys = sorted([p["quantity"] for p in preds])
+    min_user_qty = min(user_qtys)
+    max_user_qty = max(user_qtys)
+
+    # Pad 30% below and 25% above the user's range for context
+    lo = max(int(min_user_qty * 0.7), 500)
+    hi = int(max_user_qty * 1.25)
 
     qty_sweep = np.unique(np.geomspace(lo, hi, 80).astype(int))
 
     # Add user-specified tiers so they land exactly on curve
-    user_qtys = [p["quantity"] for p in preds]
     qty_sweep = np.unique(np.concatenate([qty_sweep, user_qtys]))
 
     specs_key = json.dumps({k: v for k, v in specs.items() if k != "quantity"}, sort_keys=True)
