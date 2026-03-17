@@ -1598,7 +1598,12 @@ elif page == "⚙️ Model Manager":
                     else:
                         from src.ml.model_training import train_all_models
                         results = train_all_models(train_df)
-                        st.session_state.predictor = None  # Force reload
+                        
+                        # Immediately reload trained models into session state
+                        from src.ml.prediction import QuotePredictor
+                        predictor = QuotePredictor()
+                        predictor.load_models()
+                        st.session_state.predictor = predictor
 
                         for vendor, metrics in results.items():
                             st.success(f"✅ **{vendor.title()}** — MAPE: {metrics['mape']:.1f}%, R²: {metrics['r2']:.3f}")
