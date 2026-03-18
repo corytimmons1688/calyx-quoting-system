@@ -68,6 +68,7 @@ async def send_estimate_email(
         msg = MIMEMultipart()
         msg["From"] = f"Calyx Containers <{GMAIL_USER}>"
         msg["To"] = to_email
+        msg["Reply-To"] = "Calyx Containers Sales <sales@calyxcontainers.com>"
         msg["Subject"] = f"Your Calyx Containers Estimate ({primary_estimate_number})"
         msg.attach(MIMEText(html_body, "html"))
 
