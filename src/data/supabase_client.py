@@ -238,12 +238,16 @@ def _split_tedpack_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     split_rows = []
 
-    # Map actual Supabase columns to expected names:
+# Map actual Supabase columns to expected names:
     # unit_price = air (FOB) price, landed_unit_cost = ocean (DDP) price
-    if "landed_unit_cost" in tedpack.columns and "ddp_ocean_price" not in tedpack.columns:
+    # Check for actual data, not just column existence (columns may exist but be all NULL)
+    ddp_ocean_has_data = "ddp_ocean_price" in tedpack.columns and tedpack["ddp_ocean_price"].notna().any()
+    ddp_air_has_data = "ddp_air_price" in tedpack.columns and tedpack["ddp_air_price"].notna().any()
+
+    if "landed_unit_cost" in tedpack.columns and not ddp_ocean_has_data:
         tedpack["ddp_ocean_price"] = pd.to_numeric(tedpack["landed_unit_cost"], errors="coerce")
         logger.info("Mapped landed_unit_cost → ddp_ocean_price")
-    if "ddp_air_price" not in tedpack.columns:
+    if not ddp_air_has_data:
         tedpack["ddp_air_price"] = pd.to_numeric(tedpack["unit_price"], errors="coerce")
         logger.info("Mapped unit_price → ddp_air_price")
 
