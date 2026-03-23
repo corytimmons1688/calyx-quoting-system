@@ -238,6 +238,15 @@ def _split_tedpack_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     split_rows = []
 
+    # Map actual Supabase columns to expected names:
+    # unit_price = air (FOB) price, landed_unit_cost = ocean (DDP) price
+    if "landed_unit_cost" in tedpack.columns and "ddp_ocean_price" not in tedpack.columns:
+        tedpack["ddp_ocean_price"] = pd.to_numeric(tedpack["landed_unit_cost"], errors="coerce")
+        logger.info("Mapped landed_unit_cost → ddp_ocean_price")
+    if "ddp_air_price" not in tedpack.columns:
+        tedpack["ddp_air_price"] = pd.to_numeric(tedpack["unit_price"], errors="coerce")
+        logger.info("Mapped unit_price → ddp_air_price")
+
     # Convert DDP columns to numeric (they may arrive as strings from Supabase)
     for col in ("ddp_air_price", "ddp_ocean_price"):
         if col in tedpack.columns:
@@ -356,6 +365,7 @@ def fetch_training_data() -> pd.DataFrame:
                 row["tolerance_pct"] = p.get("tolerance_pct")
                 row["ddp_air_price"] = p.get("ddp_air_price")
                 row["ddp_ocean_price"] = p.get("ddp_ocean_price")
+                row["landed_unit_cost"] = p.get("landed_unit_cost")
                 rows.append(row)
         df = pd.DataFrame(rows)
 
@@ -434,6 +444,17 @@ def deduplicate_training_data(df: pd.DataFrame) -> pd.DataFrame:
             .drop_duplicates(subset=available_dedup, keep="first")
         )
         df_with_fl = df_with_fl.drop(columns=["_fl_norm"])
+
+    # Secondary dedup for rows without FL numbers:
+    # Remove exact duplicates on (vendor, width, height, gusset, substrate, quantity, unit_price)
+    before_nofl = len(df_no_fl)
+    dedup_cols_nofl = ["vendor", "width", "height", "gusset", "substrate", "quantity", "unit_price"]
+    existing = [c for c in dedup_cols_nofl if c in df_no_fl.columns]
+    if existing:
+        df_no_fl = df_no_fl.drop_duplicates(subset=existing, keep="last")
+    after_nofl = len(df_no_fl)
+    if before_nofl != after_nofl:
+        logger.info(f"Dedup (no FL): {before_nofl} → {after_nofl} ({before_nofl - after_nofl} duplicates removed)")
 
     # Recombine
     df = pd.concat([df_with_fl, df_no_fl], ignore_index=True)
