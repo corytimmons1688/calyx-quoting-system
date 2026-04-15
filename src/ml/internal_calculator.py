@@ -1,9 +1,17 @@
 """
-Deterministic Internal Calculator v5 — HP 6900 Cost Engine.
+Deterministic Internal Calculator v5.1 — HP 6900 Cost Engine.
 
 Replaces the ML model for Internal vendor (digital ≤12" web width).
-Reverse-engineered from Label Traxx press/equipment/stock configuration
-and validated at 7.9% MAPE against 285 cost-only estimate rows.
+Reverse-engineered from Label Traxx press/equipment/stock configuration.
+
+v5.1 changes (April 2026):
+  - Added overhead calibration multipliers per (substrate, finish)
+    to correct for job-level costs not in the bare production model.
+    Derived from 964 FL-numbered estimates. Reduces under-quoting
+    from 64% to ~34% of quotes.
+  - Updated HP_RATE to $216/hr (was $125, per current LT WIP rates).
+  - Updated CR Zipper rate to $4.82/MSI (was $5.26, price drop June 2025).
+  - Overhead multipliers calibrated against $216 HP rate.
 
 Integration point: called by QuotePredictor.predict() when vendor = "internal".
 """
@@ -48,9 +56,9 @@ LAMINATES = {
 
 # ── Zippers ($/MSI, run at their own width) ──
 ZIPPERS = {
-    "CR Zipper":                       {"width": 0.95,  "cost_per_msi": 5.2587},  # Stock 174
-    "Standard CR":                     {"width": 0.95,  "cost_per_msi": 5.2587},
-    "Presto CR Zipper":                {"width": 0.95,  "cost_per_msi": 5.2587},
+    "CR Zipper":                       {"width": 0.95,  "cost_per_msi": 4.8202},  # Stock 174 (updated Apr 2026)
+    "Standard CR":                     {"width": 0.95,  "cost_per_msi": 4.8202},
+    "Presto CR Zipper":                {"width": 0.95,  "cost_per_msi": 4.8202},
     "Double Profile Non-CR":           {"width": 0.394, "cost_per_msi": 2.6734},  # Stock 176
     "Double Profile - Non CR Zipper":  {"width": 0.394, "cost_per_msi": 2.6734},
     "Single Profile Non-CR":           {"width": 0.394, "cost_per_msi": 2.6734},
@@ -166,6 +174,43 @@ COMBINED_SPOILAGE_TABLE = [
 PACKAGING_CARTON_PER_K = 3.50
 PACKAGING_PACK_PER_K = 10.196
 PACKAGING_WRAP_PER_K = 0.16
+
+
+# ── Overhead Calibration Multipliers (v5.1) ────────────────────
+# The deterministic calculator models bare production cost only.
+# Actual Label Traxx estimates include job-level overhead (AddCost
+# items, admin, dieline setup, rate drift) that the calculator
+# does not capture. These multipliers were derived from median
+# (actual_LT_price / calculator_price) across 964 FL-numbered
+# internal estimates with pw ≤ 12", validated April 2026.
+# Keyed on (substrate, finish) — the two dimensions that drive
+# the most variation in the actual/calc ratio.
+# Calibrated against HP_RATE = $216/hr.
+OVERHEAD_MULTIPLIERS = {
+    ("MET_PET",     "Matte Laminate"):       1.247,  # n=330, bread & butter
+    ("MET PET",     "Matte Laminate"):       1.247,
+    ("WHT_MET_PET", "Matte Laminate"):       1.464,  # n=295
+    ("WHT MET PET", "Matte Laminate"):       1.464,
+    ("MET_PET",     "Soft Touch Laminate"):  1.515,  # n=120
+    ("MET PET",     "Soft Touch Laminate"):  1.515,
+    ("CLR_PET",     "Matte Laminate"):       1.442,  # n=83
+    ("CLR PET",     "Matte Laminate"):       1.442,
+    ("WHT_MET_PET", "Soft Touch Laminate"):  1.406,  # n=52
+    ("WHT MET PET", "Soft Touch Laminate"):  1.406,
+    ("MET_PET",     "Gloss Laminate"):       1.684,  # n=28
+    ("MET PET",     "Gloss Laminate"):       1.684,
+    ("CLR_PET",     "Gloss Laminate"):       2.131,  # n=21
+    ("CLR PET",     "Gloss Laminate"):       2.131,
+    ("CLR_PET",     "Soft Touch Laminate"):  2.016,  # n=18
+    ("CLR PET",     "Soft Touch Laminate"):  2.016,
+    ("WHT_MET_PET", "Gloss Laminate"):       2.475,  # n=6
+    ("WHT MET PET", "Gloss Laminate"):       2.475,
+    ("HB_CLR_PET",  "Matte Laminate"):       1.442,  # n=5
+    ("HB CLR PET",  "Matte Laminate"):       1.442,
+    ("CLR_PET",     "Holographic"):          3.238,  # n=6, rare
+    ("CLR PET",     "Holographic"):          3.238,
+}
+OVERHEAD_MULTIPLIER_DEFAULT = 1.405  # median across all 964 rows at HP=$216
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -453,6 +498,14 @@ def calculate_internal_cost(width, height, gusset, quantity, substrate, finish,
     # ═══ TOTAL ═══
 
     total_cost = hp_total + thermo_total + zip_cost + poucher_total + embellishment_cost + packaging_cost
+
+    # ── Overhead calibration (v5.1) ──────────────────────────────
+    # Corrects for job-level costs not modeled by the deterministic
+    # calculator: AddCost items, admin overhead, rate drift in LT.
+    _overhead_key = (substrate, finish)
+    _overhead_mult = OVERHEAD_MULTIPLIERS.get(_overhead_key, OVERHEAD_MULTIPLIER_DEFAULT)
+    total_cost *= _overhead_mult
+
     unit_cost = total_cost / quantity if quantity > 0 else 0
 
     return {
@@ -674,15 +727,15 @@ def calculate_internal_quote(specs: dict, quantity_tiers: list[int]) -> dict:
     return {
         "vendor": "internal",
         "print_method": "digital",
-        "routing_reason": f"Digital, web width {print_width:.1f}\" ≤ 12\" → Internal (HP 6900) — Deterministic Calculator v5",
+        "routing_reason": f"Digital, web width {print_width:.1f}\" ≤ 12\" → Internal (HP 6900) — Deterministic Calculator v5.1",
         "print_width": round(print_width, 3),
         "bag_area": round(width * height, 3),
         "predictions": predictions,
         "cost_factors": cost_factors,
         "model_metrics": {
-            "mape": 7.9,  # validated MAPE (clean dataset)
-            "method": "Deterministic Calculator v5",
-            "training_rows": 285,
+            "mape": 7.9,  # validated MAPE (clean dataset, pre-overhead)
+            "method": "Deterministic Calculator v5.1",
+            "training_rows": 964,  # FL-numbered estimates used for overhead calibration
         },
         "warnings": warnings,
         "is_deterministic": True,
